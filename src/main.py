@@ -27,17 +27,26 @@ from src.retriever import (
     load_artifacts
 )
 from src.ranking.reranker import rerank
+from difflib import SequenceMatcher # for fuzzy matching in fall-back
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
+def is_similar(query1: str, query2: str, threshold: float = 0.8) -> bool: # check similar queries, 0.8 is a pretty high score with low risk of false positive
+    return SequenceMatcher(None, query1.lower(), query2.lower()).ratio() >= threshold
+
 # fall-back:check if the queries are being repeated in the last 5 queries
 def is_repeated(question: str, chat_history: list) -> bool:
-    last_user_query = []
+    # last_user_query = []
+    q1 = question.strip().lower() # handle weird spacing and tab characters etc
     for turn in chat_history[-5:]: # python auto handle history with less than 5 turns
         if turn["role"] == "user":
-            last_user_query.append(turn["content"])
+            # last_user_query.append(turn["content"])
+            q2 = turn["content"].strip().lower()
+            if q1 == q2 or is_similar(q1, q2):
+                return True
 
-    return question in last_user_query # this is exact match
+    # return question in last_user_query # this is exact match
+    return False
 
 def fall_back_response(console: Console, text: str): # answer pipeline use console to display answer in UI, not print() or return
     if console: 
