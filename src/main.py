@@ -30,6 +30,21 @@ from src.ranking.reranker import rerank
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
+# fall-back:check if the queries are being repeated in the last 5 queries
+def is_repeated(question: str, chat_history: list) -> bool:
+    last_user_query = []
+    for turn in chat_history[-5:]: # python auto handle history with less than 5 turns
+        if turn["role"] == "user":
+            last_user_query.append(turn["content"])
+
+    return question in last_user_query # this is exact match
+
+def fall_back_response(console: Console, text: str): # answer pipeline use console to display answer in UI, not print() or return
+    if console: 
+        console.print(f"\n[bold red]FALLBACK:[/bold red] {text}\n")
+    return text
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
     parser.add_argument("mode", choices=["index", "chat"], help="operation mode")
@@ -191,6 +206,13 @@ def get_answer(
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
 
+    if is_repeated(question, additional_log_info.get("chat_history", [])):
+        # print("repeating")
+        text = "It seems you've asked a similar question recently. Please refer to the previous answer or try rephrasing your question for more information."
+        fall_back_response(console, text)
+        return text
+
+
     if not ranked_chunks and not cfg.disable_chunks:
         if console:
             console.print(f"\n{ANSWER_NOT_FOUND}\n")
@@ -325,6 +347,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                     print(f"Warning: Failed to contextualize query: {e}. Using original query.")
                     effective_q = q
             
+            # additional_log_info["chat_history"] = chat_history  # ensure chat history is accessible to fall-back checks
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
 
