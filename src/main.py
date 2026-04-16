@@ -34,11 +34,11 @@ ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer tha
 def is_similar(query1: str, query2: str, threshold: float = 0.8) -> bool: # check similar queries, 0.8 is a pretty high score with low risk of false positive
     return SequenceMatcher(None, query1.lower(), query2.lower()).ratio() >= threshold
 
-# fall-back:check if the queries are being repeated in the last 5 queries
-def is_repeated(question: str, chat_history: list) -> bool:
+# fall-back:check if the queries are being repeated in the last 5 queries (default)
+def is_repeated(question: str, chat_history: list, num_recent: int = 5) -> bool:
     # last_user_query = []
     q1 = question.strip().lower() # handle weird spacing and tab characters etc
-    for turn in chat_history[-5:]: # python auto handle history with less than 5 turns
+    for turn in chat_history[-1 * num_recent:]: # python auto handle history with less than 5 turns
         if turn["role"] == "user":
             # last_user_query.append(turn["content"])
             q2 = turn["content"].strip().lower()
@@ -143,6 +143,13 @@ def get_answer(
     topk_idxs: List[int] = []
     scores = []
     
+    # move up before step 1 to increase performance, no need for unecessary chunk retrievals
+    if is_repeated(question, additional_log_info.get("chat_history", [])):
+        # print("repeating")
+        text = "It seems you've asked a similar question recently. Please refer to the previous answer or try rephrasing your question for more information."
+        fall_back_response(console, text)
+        return text
+    
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
     hyde_query = None
@@ -214,12 +221,6 @@ def get_answer(
         ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.rerank_top_k)
         # print("Reranked Chunks", type(ranked_chunks), len(ranked_chunks), type(ranked_chunks[0]) if ranked_chunks else "No chunks")
         # print("Example reranked chunk content:", ranked_chunks[0] if ranked_chunks else "No chunks after reranking")
-
-    if is_repeated(question, additional_log_info.get("chat_history", [])):
-        # print("repeating")
-        text = "It seems you've asked a similar question recently. Please refer to the previous answer or try rephrasing your question for more information."
-        fall_back_response(console, text)
-        return text
 
 
     if not ranked_chunks and not cfg.disable_chunks:
