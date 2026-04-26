@@ -28,6 +28,8 @@ from src.retriever import (
 )
 from src.ranking.reranker import rerank
 from difflib import SequenceMatcher # for fuzzy matching in fall-back
+from src.user_feedback_model import TopicExtractor # for fall-back topic suggestion
+import random
 
 ANSWER_NOT_FOUND = "I'm sorry, but I don't have enough information to answer that question."
 
@@ -146,8 +148,26 @@ def get_answer(
     # move up before step 1 to increase performance, no need for unecessary chunk retrievals
     if is_repeated(question, additional_log_info.get("chat_history", [])):
         # print("repeating")
+        # topic_extractor = additional_log_info.get("topic_extraction") # cannot use additional_log_info b/c it will convert to json which is not compatible
+        topic_extractor = artifacts.get("topic_extractor")
+        all_topics = artifacts.get("all_topics", [])
+        random_suggestions = random.sample(all_topics, k = 3) # default to 3 suggestions
+        # print("\n\nsuggestions: ", random_suggestions)
+
         text = "It seems you've asked a similar question recently. Please refer to the previous answer or try rephrasing your question for more information."
         fall_back_response(console, text)
+        
+        if topic_extractor:
+            topics = topic_extractor.extract_topics(question)
+            current_topics_text = f"Here are some related topics to your query: {', '.join(topics)}"
+            fall_back_response(console, current_topics_text)
+        else:
+            topics = []
+        # print("\n\ntopics: ", topics)
+
+        suggestion_text = f"Here are some other topics you can explore: {', '.join(random_suggestions)}"
+        fall_back_response(console, suggestion_text)
+        
         return text
     
     # Step 1: Get chunks (golden, retrieved, or none)
@@ -326,6 +346,27 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
         ranker = EnsembleRanker(ensemble_method=cfg.ensemble_method, weights=cfg.ranker_weights, rrf_k=int(cfg.rrf_k))
         print("Loaded retrievers and initialized ranker.")
         artifacts = {"chunks": chunks, "sources": sources, "retrievers": retrievers, "ranker": ranker, "meta": meta}
+    
+        # for fall-back implementation, need to initialize
+        topic_extractor = TopicExtractor (
+            extracted_index_path = pathlib.Path("data/extracted_index.json"),
+            page_to_chunk_map_path = pathlib.Path("index/sections/textbook_index_page_to_chunk_map.json"),
+            extracted_sections_path = pathlib.Path("data/extracted_sections.json")
+        )
+        all_index_topics = all_topics = []
+        for phrase_list in topic_extractor._ikr.token_to_phrases.values(): # get topics from index list
+            for phrase in phrase_list:
+                if phrase not in all_index_topics:
+                    all_index_topics.append(phrase)
+        
+        all_heading_topics = list(topic_extractor._heading_tokens.keys()) # get topics from heading list
+        
+        for topic in all_index_topics + all_heading_topics: # combine and remove duplicates
+            if topic not in all_topics:
+                all_topics.append(topic)
+
+        artifacts["topic_extractor"] = topic_extractor
+        artifacts["all_topics"] = all_topics
     except Exception as e:
         print(f"ERROR: {e}. Run 'index' mode first.")
         sys.exit(1)
@@ -352,6 +393,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
                     additional_log_info["contextualized_query"] = effective_q
                     additional_log_info["original_query"] = q
                     additional_log_info["chat_history"] = chat_history
+                    # additional_log_info["topic_extractor"] = topic_extractor # topic of query, can't use this bc it will dump to json
                     print(f"Contextualized Query: {effective_q}")  # Debug print to trace contextualization
                 except Exception as e:
                     print(f"Warning: Failed to contextualize query: {e}. Using original query.")
@@ -360,7 +402,7 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             # additional_log_info["chat_history"] = chat_history  # ensure chat history is accessible to fall-back checks
             # Use the single query function. get_answer also renders the streaming markdown and takes care of logging, so we need not do anything else here.
             ans = get_answer(effective_q, cfg, args, logger, console, artifacts=artifacts, additional_log_info=additional_log_info)
-
+            
             # Update Chat history (make it atomic for user + assistant turn)
             try:
                 user_turn      = {"role": "user", "content": q}
