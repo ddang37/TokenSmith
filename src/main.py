@@ -55,6 +55,14 @@ def fall_back_response(console: Console, text: str): # answer pipeline use conso
         console.print(f"\n[bold red]FALLBACK:[/bold red] {text}\n")
     return text
 
+def is_irrelevant(topics: List[str], all_topics: List[str]) -> bool:
+    # if none of the extracted topic can be found in the textbook
+    # then it is irrelevant
+    for t in topics:
+        if t in all_topics:
+            return False
+    
+    return True
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Welcome to TokenSmith!")
@@ -146,26 +154,46 @@ def get_answer(
     scores = []
     
     # move up before step 1 to increase performance, no need for unecessary chunk retrievals
+    topic_extractor = artifacts.get("topic_extractor")
+    if topic_extractor:
+        topics = topic_extractor.extract_topics(question)
+    else:
+        topics = []
+    all_topics = artifacts.get("all_topics", [])
+
+    # even if no topic is extracted from all of textbook topics
+    if is_irrelevant(topics, all_topics):
+        random_suggestions = random.sample(all_topics, k = 5) # default to 5 suggestions
+        text = ("This question doesn't seem related to the course material.\n" \
+                "Here are some topics from the textbook you might explore instead:\n" \
+                f"{', '.join(random_suggestions)}"
+        )
+        fall_back_response(console, text)
+        return text
+
+
     if is_repeated(question, additional_log_info.get("chat_history", [])):
         # print("repeating")
         # topic_extractor = additional_log_info.get("topic_extraction") # cannot use additional_log_info b/c it will convert to json which is not compatible
-        topic_extractor = artifacts.get("topic_extractor")
-        all_topics = artifacts.get("all_topics", [])
+        
         random_suggestions = random.sample(all_topics, k = 3) # default to 3 suggestions
         # print("\n\nsuggestions: ", random_suggestions)
 
-        text = "It seems you've asked a similar question recently. Please refer to the previous answer or try rephrasing your question for more information."
+        text = ("It seems you've asked a similar question recently.\n"
+            "Please refer to the previous answer or try rephrasing your question for more information."
+        )
         fall_back_response(console, text)
         
-        if topic_extractor:
-            topics = topic_extractor.extract_topics(question)
-            current_topics_text = f"Here are some related topics to your query: {', '.join(topics)}"
+        if topics:
+            # topics = topic_extractor.extract_topics(question)
+            current_topics_text = ("Here are some related topics to your query:\n"
+                                   f"{', '.join(topics)}"
+            )
             fall_back_response(console, current_topics_text)
-        else:
-            topics = []
-        # print("\n\ntopics: ", topics)
 
-        suggestion_text = f"Here are some other topics you can explore: {', '.join(random_suggestions)}"
+        suggestion_text = ("Here are some other topics you can explore: \n"
+                           f"{', '.join(random_suggestions)}"
+        )
         fall_back_response(console, suggestion_text)
         
         return text
