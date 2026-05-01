@@ -381,17 +381,20 @@ def run_chat_session(args: argparse.Namespace, cfg: RAGConfig):
             page_to_chunk_map_path = pathlib.Path("index/sections/textbook_index_page_to_chunk_map.json"),
             extracted_sections_path = pathlib.Path("data/extracted_sections.json")
         )
-        all_index_topics = all_topics = []
+        # all_index_topics = []
+        all_topics = []
         for phrase_list in topic_extractor._ikr.token_to_phrases.values(): # get topics from index list
             for phrase in phrase_list:
-                if phrase not in all_index_topics:
-                    all_index_topics.append(phrase)
+                if phrase not in all_topics:
+                    # all_index_topics.append(phrase)
+                    all_topics.append(phrase)
         
-        all_heading_topics = list(topic_extractor._heading_tokens.keys()) # get topics from heading list
+        # these headings are not that helpful, ex: Section 6.1.1
+        # all_heading_topics = list(topic_extractor._heading_tokens.keys()) # get topics from heading list
         
-        for topic in all_index_topics + all_heading_topics: # combine and remove duplicates
-            if topic not in all_topics:
-                all_topics.append(topic)
+        # for topic in all_index_topics + all_heading_topics: # combine and remove duplicates
+        #     if topic not in all_topics:
+        #         all_topics.append(topic)
 
         artifacts["topic_extractor"] = topic_extractor
         artifacts["all_topics"] = all_topics
